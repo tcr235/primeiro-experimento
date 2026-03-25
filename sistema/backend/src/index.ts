@@ -200,16 +200,21 @@ app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' 
     const keyText = keyFile.buffer.toString('utf8');
     const respText = respFile.buffer.toString('utf8');
 
-    // key: assume first row may be header; parse all rows and take the first non-empty
+    // key: parse rows; each row is expected to have examId at index 0 and answers starting at index 1
     const keyRecords = parse(keyText, { trim: true, skip_empty_lines: true });
-    // determine key as array of strings (labels or sums)
-    const keyRow = keyRecords[0];
-    // if first cell looks like '1' and length > 1, ignore first as index
-    const key = (keyRow.length > 1 && /^\d+$/.test(String(keyRow[0]))) ? keyRow.slice(1) : keyRow.slice(0);
+    // build map examId -> answers[]; also keep a default (first) key for fallback
+    const keyMap: Record<string, string[]> = {};
+    for (const r of keyRecords) {
+      if (!r || r.length < 2) continue;
+      const examId = String(r[0]).trim();
+      const answersArr = r.slice(1).map((c: any) => String(c).trim());
+      keyMap[examId] = answersArr;
+    }
+    const keyDefault = keyRecords.length > 0 ? keyRecords[0].slice(1).map((c: any) => String(c).trim()) : [];
 
-    const respRecords = parse(respText, { trim: true, skip_empty_lines: true });
-    // assume first row may be header; if first cell is non-numeric and not a student id, treat as header
-    const dataRows = respRecords;
+  const respRecords = parse(respText, { trim: true, skip_empty_lines: true });
+  // Student responses: expected columns -> [studentId, examId, answer1, answer2, ...]
+  const dataRows = respRecords;
 
     // grading
     const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -223,11 +228,14 @@ app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' 
     const results: any[] = [];
     for (const row of dataRows) {
       const studentId = String(row[0]);
-      const answers = row.slice(1).map((c: any) => parseAnswerCell(String(c)));
+      const studentExamId = String(row[1] ?? '').trim();
+      const answers = row.slice(2).map((c: any) => parseAnswerCell(String(c)));
+      // pick the correct key for this student's exam id, fall back to default
+      const keyForExam = (studentExamId && keyMap[studentExamId]) ? keyMap[studentExamId] : keyDefault;
       let total = 0;
       const perQuestion: number[] = [];
-      for (let i = 0; i < key.length; i++) {
-        const correct = parseAnswerCell(String(key[i] || ''));
+      for (let i = 0; i < keyForExam.length; i++) {
+        const correct = parseAnswerCell(String(keyForExam[i] || ''));
         const given = answers[i] || [];
 
         if (mode === 'strict') {
@@ -254,12 +262,12 @@ app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' 
           total += score;
         }
       }
-      const final = (total / key.length) * 100; // percentage
+  const final = (keyForExam.length > 0) ? (total / keyForExam.length) * 100 : 0; // percentage
       results.push({ studentId, perQuestion, final: Number(final.toFixed(2)) });
     }
 
-    // return JSON report; frontend can display or download
-    res.json({ mode, results, key });
+  // return JSON report; frontend can display or download
+  res.json({ mode, results, key: keyDefault });
   } catch (err) {
     console.error('grading failed', err);
     res.status(500).json({ error: 'grading failed' });
