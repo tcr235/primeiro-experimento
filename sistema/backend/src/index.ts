@@ -14,7 +14,7 @@ import { parse } from "csv-parse/sync";
 const app = express();
 app.use(
   cors({
-    origin: "https://primeiro-experimento.vercel.app/",
+    origin: "https://primeiro-experimento.vercel.app",
   }),
 );
 app.use(express.json());
