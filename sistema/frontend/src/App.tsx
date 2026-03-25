@@ -12,6 +12,10 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [copies, setCopies] = useState<number>(1);
   const [meta, setMeta] = useState({ subject: '', professor: '', date: '', semester: '' });
+  const [gradeMode, setGradeMode] = useState<'strict'|'proportional'>('strict');
+  const [keyFile, setKeyFile] = useState<File | null>(null);
+  const [respFile, setRespFile] = useState<File | null>(null);
+  const [gradeReport, setGradeReport] = useState<any | null>(null);
 
   async function load() {
     const res = await fetch(`${API}/questions`);
@@ -82,6 +86,34 @@ export default function App() {
   URL.revokeObjectURL(url);
   }
 
+  async function handleProcessGrades() {
+    if (!keyFile || !respFile) return alert('Please select both files');
+    const fd = new FormData();
+    fd.append('key', keyFile);
+    fd.append('responses', respFile);
+    fd.append('mode', gradeMode);
+
+    const res = await fetch(`${API}/grades/process`, { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      return alert('Grading failed: ' + (err.error || res.statusText));
+    }
+    const data = await res.json();
+    setGradeReport(data);
+  }
+
+  function downloadReportCsv() {
+    if (!gradeReport) return;
+    // produce CSV: studentId,score
+    const lines = ['studentId,' + (gradeReport.key || []).map((_:any,i:number)=>`q${i+1}`).join(',') + ',final'];
+    for (const r of gradeReport.results) {
+      lines.push([r.studentId, ...r.perQuestion.map((p:number)=>String(Number((p*100).toFixed(0))+'%')), String(r.final)+'%'].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'grades_report.csv'; a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="shell">
       <header>
@@ -149,6 +181,40 @@ export default function App() {
                     <span style={{fontSize:13}}>{q.description}</span>
                   </label>
                 ))}
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3>Grading</h3>
+              <div style={{display:'grid',gap:8}}>
+                <label>Answer key CSV: <input type="file" accept=".csv,text/csv" onChange={(e)=>setKeyFile(e.target.files?.[0]||null)} /></label>
+                <label>Responses CSV: <input type="file" accept=".csv,text/csv" onChange={(e)=>setRespFile(e.target.files?.[0]||null)} /></label>
+                <label>Mode:
+                  <select value={gradeMode} onChange={(e)=>setGradeMode(e.target.value as any)}>
+                    <option value="strict">Strict</option>
+                    <option value="proportional">Proportional</option>
+                  </select>
+                </label>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={handleProcessGrades}>Process grades</button>
+                  <button onClick={downloadReportCsv} disabled={!gradeReport}>Download CSV</button>
+                </div>
+
+                {gradeReport && (
+                  <div>
+                    <h4>Class report</h4>
+                    <table style={{width:'100%',borderCollapse:'collapse'}}>
+                      <thead>
+                        <tr><th style={{textAlign:'left'}}>Student</th><th>Final %</th></tr>
+                      </thead>
+                      <tbody>
+                        {gradeReport.results.map((r:any)=> (
+                          <tr key={r.studentId}><td>{r.studentId}</td><td style={{textAlign:'center'}}>{r.final}%</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           </div>

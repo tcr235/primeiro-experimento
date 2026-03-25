@@ -8,10 +8,14 @@ import { makeShuffledTests } from "./pdf/shuffler";
 import { generateTestsPdf } from "./pdf/generator";
 import archiver from "archiver";
 import { PassThrough } from "stream";
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const upload = multer();
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_FILE = path.join(DATA_DIR, "questions.json");
@@ -178,6 +182,87 @@ app.post("/tests/generate", async (req, res) => {
     console.error("zip generation failed", err);
     if (!res.headersSent)
       res.status(500).json({ error: "zip generation failed" });
+  }
+});
+
+// Grades processing endpoint
+// Accepts multipart/form-data with fields:
+// - key: CSV file (first column question number optional, rest are answers)
+// - responses: CSV file where first column is student id/name and following columns are answers
+// - mode: 'strict' | 'proportional'
+app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' }]), async (req, res) => {
+  try {
+    const mode = String((req.body.mode || 'strict'));
+    const keyFile = req.files && (req.files as any).key && (req.files as any).key[0];
+    const respFile = req.files && (req.files as any).responses && (req.files as any).responses[0];
+    if (!keyFile || !respFile) return res.status(400).json({ error: 'both files required (key, responses)' });
+
+    const keyText = keyFile.buffer.toString('utf8');
+    const respText = respFile.buffer.toString('utf8');
+
+    // key: assume first row may be header; parse all rows and take the first non-empty
+    const keyRecords = parse(keyText, { trim: true, skip_empty_lines: true });
+    // determine key as array of strings (labels or sums)
+    const keyRow = keyRecords[0];
+    // if first cell looks like '1' and length > 1, ignore first as index
+    const key = (keyRow.length > 1 && /^\d+$/.test(String(keyRow[0]))) ? keyRow.slice(1) : keyRow.slice(0);
+
+    const respRecords = parse(respText, { trim: true, skip_empty_lines: true });
+    // assume first row may be header; if first cell is non-numeric and not a student id, treat as header
+    const dataRows = respRecords;
+
+    // grading
+    const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    function parseAnswerCell(cell: string) {
+      // support 'A|C' or 'A' or '1' etc.
+      if (!cell) return [];
+      return String(cell).split('|').map(s => s.trim()).filter(Boolean);
+    }
+
+    const results: any[] = [];
+    for (const row of dataRows) {
+      const studentId = String(row[0]);
+      const answers = row.slice(1).map((c: any) => parseAnswerCell(String(c)));
+      let total = 0;
+      const perQuestion: number[] = [];
+      for (let i = 0; i < key.length; i++) {
+        const correct = parseAnswerCell(String(key[i] || ''));
+        const given = answers[i] || [];
+
+        if (mode === 'strict') {
+          // strict: exact set match
+          const ok = correct.length === given.length && correct.every(v => given.includes(v));
+          perQuestion.push(ok ? 1 : 0);
+          total += ok ? 1 : 0;
+        } else {
+          // proportional: compute proportion of correctly selected and correctly unselected
+          const allLabels = labels.split('').slice(0, Math.max(correct.length, given.length, 4));
+          // actually derive from union of indices of alternatives in key and given
+          const union = Array.from(new Set([...correct, ...given]));
+          // for scoring, consider alternatives present in the question: we'll approximate using union
+          let correctCount = 0;
+          let totalCount = union.length;
+          if (totalCount === 0) { perQuestion.push(1); total += 1; continue; }
+          for (const lab of union) {
+            const isCorrect = correct.includes(lab);
+            const isGiven = given.includes(lab);
+            if (isCorrect === isGiven) correctCount += 1;
+          }
+          const score = correctCount / totalCount;
+          perQuestion.push(score);
+          total += score;
+        }
+      }
+      const final = (total / key.length) * 100; // percentage
+      results.push({ studentId, perQuestion, final: Number(final.toFixed(2)) });
+    }
+
+    // return JSON report; frontend can display or download
+    res.json({ mode, results, key });
+  } catch (err) {
+    console.error('grading failed', err);
+    res.status(500).json({ error: 'grading failed' });
   }
 });
 
