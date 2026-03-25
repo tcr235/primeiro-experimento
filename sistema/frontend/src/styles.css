@@ -137,6 +137,9 @@ button.danger {
   gap: 8px;
   align-items: center;
 }
+.alt-label{
+  width:26px; text-align:right; color:var(--muted); font-weight:600; margin-right:6px;
+}
 .alt-input {
   flex: 1;
 }

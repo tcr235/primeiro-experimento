@@ -62,32 +62,37 @@ export default function QuestionEditor({ initial, onSave, onCancel }: Props) {
       </label>
 
       <div className="alts">
-        {alternatives.map((a) => (
-          <div key={a.id} className="alt-row">
-            <input
-              className="alt-input"
-              value={a.text}
-              onChange={(e) => updateAlt(a.id, { text: e.target.value })}
-              placeholder="Alternative text"
-              required
-            />
-            <label className="correct">
+        {alternatives.map((a, idx) => {
+          const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+          const lab = labels[idx] ?? String(idx + 1);
+          return (
+            <div key={a.id} className="alt-row">
+              <div className="alt-label">{lab})</div>
               <input
-                type="checkbox"
-                checked={a.correct}
-                onChange={(e) => updateAlt(a.id, { correct: e.target.checked })}
+                className="alt-input"
+                value={a.text}
+                onChange={(e) => updateAlt(a.id, { text: e.target.value })}
+                placeholder="Alternative text"
+                required
               />
-              Correct
-            </label>
-            <button
-              type="button"
-              className="small"
-              onClick={() => removeAlt(a.id)}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
+              <label className="correct">
+                <input
+                  type="checkbox"
+                  checked={a.correct}
+                  onChange={(e) => updateAlt(a.id, { correct: e.target.checked })}
+                />
+                Correct
+              </label>
+              <button
+                type="button"
+                className="small"
+                onClick={() => removeAlt(a.id)}
+              >
+                Remove
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       <div className="editor-actions">
