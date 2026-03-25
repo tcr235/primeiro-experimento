@@ -11,6 +11,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [copies, setCopies] = useState<number>(1);
+  const [meta, setMeta] = useState({ subject: '', professor: '', date: '', semester: '' });
 
   async function load() {
     const res = await fetch(`${API}/questions`);
@@ -56,7 +57,7 @@ export default function App() {
 
   async function handleGenerate() {
     const ids = Object.keys(selectedIds).filter((k) => selectedIds[k]);
-    const payload = { questionIds: ids.length ? ids : undefined, copies };
+  const payload = { questionIds: ids.length ? ids : undefined, copies, meta };
 
     const res = await fetch(`${API}/tests/generate`, {
       method: 'POST',
@@ -70,15 +71,15 @@ export default function App() {
     }
 
     // stream download
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'tests.pdf';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'tests_and_gabarito.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
   }
 
   return (
@@ -124,6 +125,13 @@ export default function App() {
                 <input type="number" min={1} max={200} value={copies} onChange={(e)=>setCopies(Number(e.target.value)||1)} style={{width:80}} />
               </label>
               <button onClick={handleGenerate}>/tests/generate</button>
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:8}}>
+              <input placeholder="Subject" value={meta.subject} onChange={(e)=>setMeta({...meta,subject:e.target.value})} />
+              <input placeholder="Professor" value={meta.professor} onChange={(e)=>setMeta({...meta,professor:e.target.value})} />
+              <input placeholder="Date (YYYY-MM-DD)" value={meta.date} onChange={(e)=>setMeta({...meta,date:e.target.value})} />
+              <input placeholder="Semester" value={meta.semester} onChange={(e)=>setMeta({...meta,semester:e.target.value})} />
             </div>
 
             <QuestionList

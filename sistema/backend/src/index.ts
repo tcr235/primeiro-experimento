@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from "uuid";
 import { Question, Alternative } from "./models";
 import { makeShuffledTests } from "./pdf/shuffler";
 import { generateTestsPdf } from "./pdf/generator";
+import archiver from "archiver";
+import { PassThrough } from "stream";
 
 const app = express();
 app.use(cors());
@@ -125,16 +127,57 @@ app.post("/tests/generate", async (req, res) => {
   // prepare shuffled tests
   const tests = makeShuffledTests(selected, n, seed);
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="tests.pdf"`);
+  // Build CSV gabarito: each line -> examNumber,answer1,answer2,...
+  function buildGabaritoCsv(testsArg: Question[][]) {
+    const lines: string[] = [];
+    const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    testsArg.forEach((t: Question[], idx: number) => {
+      const answers = t.map((q: Question) => {
+        // collect correct alternatives' labels (could be multiple)
+        const corrects = q.alternatives
+          .map((a: any, i: number) =>
+            a.correct ? (labels[i] ?? String(i + 1)) : null,
+          )
+          .filter(Boolean) as string[];
+        // if identification by powers-of-two needed, here we'd compute sum
+        return corrects.join("|");
+      });
+      lines.push([String(idx + 1), ...answers].join(","));
+    });
+    return lines.join("\n");
+  }
 
   try {
-    generateTestsPdf(tests, res, meta);
-    // generator will end the stream; don't call res.end() here
+    // Create a zip archive streamed to response
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="tests_and_gabarito.zip"`,
+    );
+
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", (err: Error) => {
+      console.error("archive error", err);
+      if (!res.headersSent) res.status(500).end();
+    });
+    archive.pipe(res);
+
+    // PDF: generate into a passthrough stream and append to archive
+    const pdfStream = new PassThrough();
+    archive.append(pdfStream, { name: "tests.pdf" });
+    // Start PDF generation into pdfStream
+    generateTestsPdf(tests, pdfStream, meta);
+
+    // CSV gabarito
+    const csv = buildGabaritoCsv(tests);
+    archive.append(csv, { name: "gabarito.csv" });
+
+    await archive.finalize();
+    // response will be closed when archive finishes
   } catch (err) {
-    console.error("pdf generation failed", err);
+    console.error("zip generation failed", err);
     if (!res.headersSent)
-      res.status(500).json({ error: "pdf generation failed" });
+      res.status(500).json({ error: "zip generation failed" });
   }
 });
 
