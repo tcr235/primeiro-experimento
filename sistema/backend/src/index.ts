@@ -4,6 +4,8 @@ import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { Question, Alternative } from "./models";
+import { makeShuffledTests } from './pdf/shuffler';
+import { generateTestsPdf } from './pdf/generator';
 
 const app = express();
 app.use(cors());
@@ -94,6 +96,33 @@ app.delete("/questions/:id", async (req, res) => {
     return res.status(404).json({ error: "not found" });
   await saveData();
   res.status(204).send();
+});
+
+// Generate PDF tests endpoint
+// POST /tests/generate
+// body: { questionIds?: string[], copies: number, seed?: number }
+app.post('/tests/generate', async (req, res) => {
+  const { questionIds, copies, seed } = req.body as { questionIds?: string[]; copies?: number; seed?: number };
+  const n = Number(copies || 1);
+  if (!Number.isInteger(n) || n < 1 || n > 200) return res.status(400).json({ error: 'copies must be integer between 1 and 200' });
+
+  // select questions
+  const selected = questionIds && questionIds.length > 0 ? questions.filter((q) => questionIds.includes(q.id)) : questions;
+  if (selected.length === 0) return res.status(400).json({ error: 'no questions selected' });
+
+  // prepare shuffled tests
+  const tests = makeShuffledTests(selected, n, seed);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="tests.pdf"`);
+
+  try {
+    generateTestsPdf(tests, res);
+    // generator will end the stream; don't call res.end() here
+  } catch (err) {
+    console.error('pdf generation failed', err);
+    if (!res.headersSent) res.status(500).json({ error: 'pdf generation failed' });
+  }
 });
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
