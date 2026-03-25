@@ -8,11 +8,15 @@ import { makeShuffledTests } from "./pdf/shuffler";
 import { generateTestsPdf } from "./pdf/generator";
 import archiver from "archiver";
 import { PassThrough } from "stream";
-import multer from 'multer';
-import { parse } from 'csv-parse/sync';
+import multer from "multer";
+import { parse } from "csv-parse/sync";
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://primeiro-experimento.vercel.app/",
+  }),
+);
 app.use(express.json());
 
 const upload = multer();
@@ -190,89 +194,127 @@ app.post("/tests/generate", async (req, res) => {
 // - key: CSV file (first column question number optional, rest are answers)
 // - responses: CSV file where first column is student id/name and following columns are answers
 // - mode: 'strict' | 'proportional'
-app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' }]), async (req, res) => {
-  try {
-    const mode = String((req.body.mode || 'strict'));
-    const keyFile = req.files && (req.files as any).key && (req.files as any).key[0];
-    const respFile = req.files && (req.files as any).responses && (req.files as any).responses[0];
-    if (!keyFile || !respFile) return res.status(400).json({ error: 'both files required (key, responses)' });
+app.post(
+  "/grades/process",
+  upload.fields([{ name: "key" }, { name: "responses" }]),
+  async (req, res) => {
+    try {
+      const mode = String(req.body.mode || "strict");
+      const keyFile =
+        req.files && (req.files as any).key && (req.files as any).key[0];
+      const respFile =
+        req.files &&
+        (req.files as any).responses &&
+        (req.files as any).responses[0];
+      if (!keyFile || !respFile)
+        return res
+          .status(400)
+          .json({ error: "both files required (key, responses)" });
 
-    const keyText = keyFile.buffer.toString('utf8');
-    const respText = respFile.buffer.toString('utf8');
+      const keyText = keyFile.buffer.toString("utf8");
+      const respText = respFile.buffer.toString("utf8");
 
-    // key: parse rows; each row is expected to have examId at index 0 and answers starting at index 1
-    const keyRecords = parse(keyText, { trim: true, skip_empty_lines: true });
-    // build map examId -> answers[]; also keep a default (first) key for fallback
-    const keyMap: Record<string, string[]> = {};
-    for (const r of keyRecords) {
-      if (!r || r.length < 2) continue;
-      const examId = String(r[0]).trim();
-      const answersArr = r.slice(1).map((c: any) => String(c).trim());
-      keyMap[examId] = answersArr;
-    }
-    const keyDefault = keyRecords.length > 0 ? keyRecords[0].slice(1).map((c: any) => String(c).trim()) : [];
-
-  const respRecords = parse(respText, { trim: true, skip_empty_lines: true });
-  // Student responses: expected columns -> [studentId, examId, answer1, answer2, ...]
-  const dataRows = respRecords;
-
-    // grading
-    const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-    function parseAnswerCell(cell: string) {
-      // support 'A|C' or 'A' or '1' etc.
-      if (!cell) return [];
-      return String(cell).split('|').map(s => s.trim()).filter(Boolean);
-    }
-
-    const results: any[] = [];
-    for (const row of dataRows) {
-      const studentId = String(row[0]);
-      const studentExamId = String(row[1] ?? '').trim();
-      const answers = row.slice(2).map((c: any) => parseAnswerCell(String(c)));
-      // pick the correct key for this student's exam id, fall back to default
-      const keyForExam = (studentExamId && keyMap[studentExamId]) ? keyMap[studentExamId] : keyDefault;
-      let total = 0;
-      const perQuestion: number[] = [];
-      for (let i = 0; i < keyForExam.length; i++) {
-        const correct = parseAnswerCell(String(keyForExam[i] || ''));
-        const given = answers[i] || [];
-
-        if (mode === 'strict') {
-          // strict: exact set match
-          const ok = correct.length === given.length && correct.every(v => given.includes(v));
-          perQuestion.push(ok ? 1 : 0);
-          total += ok ? 1 : 0;
-        } else {
-          // proportional: compute proportion of correctly selected and correctly unselected
-          const allLabels = labels.split('').slice(0, Math.max(correct.length, given.length, 4));
-          // actually derive from union of indices of alternatives in key and given
-          const union = Array.from(new Set([...correct, ...given]));
-          // for scoring, consider alternatives present in the question: we'll approximate using union
-          let correctCount = 0;
-          let totalCount = union.length;
-          if (totalCount === 0) { perQuestion.push(1); total += 1; continue; }
-          for (const lab of union) {
-            const isCorrect = correct.includes(lab);
-            const isGiven = given.includes(lab);
-            if (isCorrect === isGiven) correctCount += 1;
-          }
-          const score = correctCount / totalCount;
-          perQuestion.push(score);
-          total += score;
-        }
+      // key: parse rows; each row is expected to have examId at index 0 and answers starting at index 1
+      const keyRecords = parse(keyText, { trim: true, skip_empty_lines: true });
+      // build map examId -> answers[]; also keep a default (first) key for fallback
+      const keyMap: Record<string, string[]> = {};
+      for (const r of keyRecords) {
+        if (!r || r.length < 2) continue;
+        const examId = String(r[0]).trim();
+        const answersArr = r.slice(1).map((c: any) => String(c).trim());
+        keyMap[examId] = answersArr;
       }
-  const final = (keyForExam.length > 0) ? (total / keyForExam.length) * 100 : 0; // percentage
-      results.push({ studentId, perQuestion, final: Number(final.toFixed(2)) });
-    }
+      const keyDefault =
+        keyRecords.length > 0
+          ? keyRecords[0].slice(1).map((c: any) => String(c).trim())
+          : [];
 
-  // return JSON report; frontend can display or download
-  res.json({ mode, results, key: keyDefault });
-  } catch (err) {
-    console.error('grading failed', err);
-    res.status(500).json({ error: 'grading failed' });
-  }
-});
+      const respRecords = parse(respText, {
+        trim: true,
+        skip_empty_lines: true,
+      });
+      // Student responses: expected columns -> [studentId, examId, answer1, answer2, ...]
+      const dataRows = respRecords;
+
+      // grading
+      const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+      function parseAnswerCell(cell: string) {
+        // support 'A|C' or 'A' or '1' etc.
+        if (!cell) return [];
+        return String(cell)
+          .split("|")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      const results: any[] = [];
+      for (const row of dataRows) {
+        const studentId = String(row[0]);
+        const studentExamId = String(row[1] ?? "").trim();
+        const answers = row
+          .slice(2)
+          .map((c: any) => parseAnswerCell(String(c)));
+        // pick the correct key for this student's exam id, fall back to default
+        const keyForExam =
+          studentExamId && keyMap[studentExamId]
+            ? keyMap[studentExamId]
+            : keyDefault;
+        let total = 0;
+        const perQuestion: number[] = [];
+        for (let i = 0; i < keyForExam.length; i++) {
+          const correct = parseAnswerCell(String(keyForExam[i] || ""));
+          const given = answers[i] || [];
+
+          if (mode === "strict") {
+            // strict: exact set match
+            const ok =
+              correct.length === given.length &&
+              correct.every((v) => given.includes(v));
+            perQuestion.push(ok ? 1 : 0);
+            total += ok ? 1 : 0;
+          } else {
+            // proportional: compute proportion of correctly selected and correctly unselected
+            const allLabels = labels
+              .split("")
+              .slice(0, Math.max(correct.length, given.length, 4));
+            // actually derive from union of indices of alternatives in key and given
+            const union = Array.from(new Set([...correct, ...given]));
+            // for scoring, consider alternatives present in the question: we'll approximate using union
+            let correctCount = 0;
+            let totalCount = union.length;
+            if (totalCount === 0) {
+              perQuestion.push(1);
+              total += 1;
+              continue;
+            }
+            for (const lab of union) {
+              const isCorrect = correct.includes(lab);
+              const isGiven = given.includes(lab);
+              if (isCorrect === isGiven) correctCount += 1;
+            }
+            const score = correctCount / totalCount;
+            perQuestion.push(score);
+            total += score;
+          }
+        }
+        const final =
+          keyForExam.length > 0 ? (total / keyForExam.length) * 100 : 0; // percentage
+        results.push({
+          studentId,
+          perQuestion,
+          final: Number(final.toFixed(2)),
+        });
+      }
+
+      // return JSON report; frontend can display or download
+      res.json({ mode, results, key: keyDefault });
+    } catch (err) {
+      console.error("grading failed", err);
+      res.status(500).json({ error: "grading failed" });
+    }
+  },
+);
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 
@@ -289,7 +331,7 @@ export async function startServer(port = PORT) {
 // start automatically when run directly
 if (require.main === module) {
   startServer().catch((err) => {
-    console.error('failed to start server', err);
+    console.error("failed to start server", err);
   });
 }
 
