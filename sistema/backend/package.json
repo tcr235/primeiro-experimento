@@ -5,26 +5,32 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "test:acceptance": "cucumber-js --require-module ts-node/register -r 'test/steps/**/*.ts' test/features --fail-fast",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "pdfkit": "^0.13.0",
     "archiver": "^5.3.1",
-    "multer": "^1.4.5-lts.1",
+    "cors": "^2.8.5",
     "csv-parse": "^5.4.0",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.13.0",
     "uuid": "^9.0.0"
   },
+  "test:acceptance": "cucumber-js -r test/steps --require-module ts-node/register test/features --fail-fast",
   "devDependencies": {
+    "@cucumber/cucumber": "^9.6.0",
+    "@types/archiver": "^5.1.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.17",
-    "@types/node": "^20.3.1",
-    "@types/uuid": "^10.0.0",
-    "@types/archiver": "^5.1.1",
     "@types/multer": "^1.4.7",
+    "@types/node": "^20.3.1",
     "@types/pdfkit": "^0.12.0",
+    "@types/supertest": "^2.0.12",
+    "@types/uuid": "^10.0.0",
+    "supertest": "^6.3.3",
+    "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.1.6"
   }

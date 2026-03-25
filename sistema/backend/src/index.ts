@@ -276,9 +276,21 @@ app.post('/grades/process', upload.fields([{ name: 'key' }, { name: 'responses' 
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 
-(async function start() {
+export async function startServer(port = PORT) {
   await loadData();
-  app.listen(PORT, () => {
-    console.log(`Backend running at http://localhost:${PORT}`);
+  return new Promise<void>((resolve) => {
+    app.listen(port, () => {
+      console.log(`Backend running at http://localhost:${port}`);
+      resolve();
+    });
   });
-})();
+}
+
+// start automatically when run directly
+if (require.main === module) {
+  startServer().catch((err) => {
+    console.error('failed to start server', err);
+  });
+}
+
+export default app;
